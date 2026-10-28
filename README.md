@@ -7,12 +7,12 @@
 [![npm](https://img.shields.io/npm/v/dsh-composer-balance)](https://www.npmjs.com/package/dsh-composer-balance)
 [![license](https://img.shields.io/npm/l/dsh-composer-balance)](LICENSE)
 
-<!--
-截图：把两张图放到 docs/ 下，然后取消注释。发布前请把余额与会话内容打码或换成假数据。
+<p align="center">
+  <img src="docs/chip.png" width="119" alt="composer chip: balance and current chat">
+  <img src="docs/card.png" width="268" alt="the card: balance, current chat, tariff">
+</p>
 
-[![界面](docs/chip.png)](docs/card.png)
-
-收录到开放插件市场后再启用这枚徽章：
+<!-- 收录到开放插件市场后再启用这枚徽章：
 
 [![开放插件市场](https://img.shields.io/endpoint?url=https%3A%2F%2Fdshopen.org%2Fbadge%2Fdsh-composer-balance.json)](https://dshopen.org/zh/plugins/dsh-composer-balance/)
 -->
