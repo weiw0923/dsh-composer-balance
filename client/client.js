@@ -662,7 +662,9 @@ window.__ModuleLoader__.load({
 						"输入 " + tokens(inputTokens),
 						"输出 " + tokens(usage.outputTokens ?? 0),
 						"命中 " + hitRate + "%",
-						perTurnCost !== undefined ? "按轮计价" : state.isPeak === true ? "高峰计价" : "空闲计价",
+						// the line above already names the basis; only the fallback
+						// estimate needs to say which tariff it used
+						...(perTurnCost !== undefined ? [] : [state.isPeak === true ? "高峰计价" : "空闲计价"]),
 					])
 					: h("div", { className: "dcb_sub", key: "session-sub" }, t("card.empty")),
 				h("div", { className: "dcb_rule", key: "rule-2" }),
