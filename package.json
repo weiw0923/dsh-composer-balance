@@ -1,0 +1,60 @@
+{
+  "name": "dsh-composer-balance",
+  "version": "0.1.0",
+  "description": "Minimal composer chip for DeepSeek Harness: account balance and current-session spend, rendered in the host's own visual language. Unofficial, standalone implementation.",
+  "license": "MIT",
+  "author": "weiw0923 <weiw0923@gmail.com>",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "balance",
+    "usage",
+    "cost",
+    "composer"
+  ],
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "client",
+    "assets",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.2.0-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-host-webserver": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weiw0923/dsh-composer-balance.git"
+  },
+  "homepage": "https://github.com/weiw0923/dsh-composer-balance#readme",
+  "bugs": {
+    "url": "https://github.com/weiw0923/dsh-composer-balance/issues"
+  }
+}

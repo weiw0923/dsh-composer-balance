@@ -1,0 +1,6 @@
+# dsh-composer-balance — a single plugin row, inserted into whichever profile
+# installs this bundle. The id is the handle every other patch (disable, config
+# override) targets.
+- insert:
+    - id: dsh-composer-balance
+      name: 'dsh-composer-balance'
