@@ -545,16 +545,26 @@ window.__ModuleLoader__.load({
 				: undefined;
 			const perTurnCost = hostCost ?? projected;
 			const tokenCost = priceUsage(usage, state.price);
-			const estimate = perTurnCost ?? tokenCost;
-			const balanceCost = ledger.peak;
-			const composite = Math.max(estimate ?? 0, balanceCost);
+			// per-turn replay is authoritative: it is never overruled by the old
+			// whole-session estimate, and it clears any peak that estimate left behind
+			const authoritative = perTurnCost !== undefined ? Math.max(perTurnCost, ledger.spent) : undefined;
+			const estimate = authoritative ?? tokenCost;
+			const balanceCost = ledger.spent;
+			const composite = authoritative !== undefined ? authoritative : Math.max(tokenCost ?? 0, ledger.peak);
 
 			useEffect(() => {
+				if (authoritative !== undefined) {
+					if (ledger.peak === authoritative) return;
+					const next = { ...ledger, peak: authoritative };
+					writeLedger(sessionId, next);
+					setLedger(next);
+					return;
+				}
 				if (!Number.isFinite(composite) || composite <= ledger.peak) return;
 				const next = { ...ledger, peak: composite };
 				writeLedger(sessionId, next);
 				setLedger(next);
-			}, [composite, ledger, sessionId]);
+			}, [authoritative, composite, ledger, sessionId]);
 
 			const spent = state.status === "ok" && composite > 0 ? composite : undefined;
 

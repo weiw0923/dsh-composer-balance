@@ -297,6 +297,8 @@ export function apply(ctx, config) {
     snapshot: { status: 'idle', fetchedAt: 0 },
     /** @type {Promise<void>|null} */
     pending: null,
+    /** Last session id the browser named, for diagnostics. */
+    lastSession: '',
   }
 
   /**
@@ -358,6 +360,7 @@ export function apply(ctx, config) {
       price,
       isPeak: peak,
       projection: projectionReady,
+      lastSession: state.lastSession,
       basePrice: unitPrice(model, settings, false),
       warning: settings.warningThreshold,
       danger: settings.dangerThreshold,
@@ -410,6 +413,7 @@ export function apply(ctx, config) {
       // per-turn cost replayed from its own log (see sessionCost above)
       const asked = /[?&]session=([^&]+)/.exec(url)
       if (asked !== null) {
+        state.lastSession = decodeURIComponent(asked[1])
         const replayed = sessionCost(decodeURIComponent(asked[1]))
         if (replayed !== undefined) body.cost = replayed
       }
