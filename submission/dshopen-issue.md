@@ -19,13 +19,17 @@ A minimal balance chip for the composer dock: account balance and current-sessio
 
 ## 补充信息 / Additional details
 
-- 版本：`0.1.0`，MIT 许可，公开源码（GitHub）。
-- 兼容：DSH `>=0.2.0-rc.1`，已在 `0.2.1-rc.2` 上实测（余额读取、峰谷单价、卡片开合、设置保存）。
+- 版本：`0.2.0`，MIT 许可，公开源码（GitHub）。
+- 兼容：DSH `>=0.2.0-rc.1`，已在 `0.2.1-rc.2` 上实测（余额读取、按轮计价、卡片开合、设置保存）。
+- 当前会话的花费**按轮计价**：每个 provider usage 样本按它自己时间戳的档位（高峰/空闲）计算，跨峰谷不失真；另有一行“余额变动”作为实际扣费参考。
 - 依赖：仅 `@deepseek-ai/schemastery` / `@deepseek-ai/cordis` / `@deepseek-ai/dsh-host-webserver`（peer，随宿主提供），另无第三方运行时依赖。
 - 数据来源：DeepSeek 官方 `/user/balance` 与宿主自带的 `tokenUsage` 会话投影；单价按官方刊例价（元/百万 token，含高峰/空闲两档）。
 - 需要：已配置 `DEEPSEEK_API_KEY`（凭证引用可在 `cordis.patch.yml` 中改）。
 - Logo：仓库内 `assets/logo.svg`（512×512，描边 ¥）。
-- 截图：待补两张（chip 特写 + 卡片展开），素材已在本地做好，提交前会补上。
+- 截图（实拍，非 mock）：
+
+  <img src="https://raw.githubusercontent.com/weiw0923/dsh-composer-balance/main/docs/chip.png" width="240" alt="chip">
+  <img src="https://raw.githubusercontent.com/weiw0923/dsh-composer-balance/main/docs/card.png" width="268" alt="card">
 
 ## 备注
 
