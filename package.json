@@ -1,6 +1,6 @@
 {
   "name": "dsh-composer-balance",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Minimal composer chip for DeepSeek Harness: account balance and current-session spend, rendered in the host's own visual language. Unofficial, standalone implementation.",
   "license": "MIT",
   "author": "weiw0923 <weiw0923@gmail.com>",
@@ -56,5 +56,8 @@
   "homepage": "https://github.com/weiw0923/dsh-composer-balance#readme",
   "bugs": {
     "url": "https://github.com/weiw0923/dsh-composer-balance/issues"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }

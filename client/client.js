@@ -46,9 +46,9 @@ window.__ModuleLoader__.load({
 				".dcb_chip:hover,.dcb_chip[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}",
 				".dcb_chip:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}",
 				".dcb_icon{display:block;flex:none;margin-right:2px}",
-				".dcb_amount_warning{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-warning-primary,#f59e0b))}",
-				".dcb_amount_danger{color:var(--dsw-alias-state-error-primary,#ef4444)}",
 				".dcb_amount{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}",
+				".dcb_chip .dcb_amount_warning{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-warning-primary,#f59e0b))}",
+				".dcb_chip .dcb_amount_danger{color:var(--dsw-alias-state-error-primary,#ef4444)}",
 				".dcb_sep{color:var(--dsw-alias-separator-primary)}",
 				// card: the host panel recipe
 				".dcb_card{position:absolute;bottom:calc(100% + 8px);right:0;z-index:1100;box-sizing:border-box;border-radius:var(--dsw-radius-lg);background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;padding:12px;white-space:normal;text-align:left}",
@@ -56,6 +56,9 @@ window.__ModuleLoader__.load({
 				".dcb_label{color:var(--dsw-alias-label-tertiary)}",
 				".dcb_value{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums}",
 				".dcb_sub{color:var(--dsw-alias-label-tertiary);font-size:11.5px;line-height:18px}",
+				".dcb_meta{display:flex;flex-wrap:wrap;column-gap:4px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;line-height:18px}",
+				".dcb_meta>span{white-space:nowrap}",
+				".dcb_meta_dot{color:var(--dsw-alias-separator-primary)}",
 				".dcb_rule{height:1px;background:var(--dsw-alias-separator-primary);margin:10px -12px}",
 				".dcb_foot{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;line-height:18px}",
 				".dcb_actions{display:inline-flex;align-items:center;gap:8px}",
@@ -147,6 +150,59 @@ window.__ModuleLoader__.load({
 			}
 		}
 
+		// ---- per-session spend ledger ----------------------------------------
+		/** Key prefix for one session's ledger. */
+		const LEDGER_PREFIX = "dsh-composer-balance/session/";
+
+		/**
+		 * @param sessionId - the session the entry is bound to.
+		 * @returns `{last, spent, peak}` — last balance seen, spend accumulated from
+		 * drops, and the highest figure ever shown for this session.
+		 */
+		function readLedger(sessionId) {
+			try {
+				const raw = window.localStorage.getItem(LEDGER_PREFIX + sessionId);
+				if (raw === null) return { last: null, spent: 0, peak: 0 };
+				const parsed = JSON.parse(raw);
+				return {
+					last: Number.isFinite(parsed?.last) ? parsed.last : null,
+					spent: Number.isFinite(parsed?.spent) ? parsed.spent : 0,
+					peak: Number.isFinite(parsed?.peak) ? parsed.peak : 0,
+				};
+			} catch {
+				return { last: null, spent: 0, peak: 0 };
+			}
+		}
+
+		/**
+		 * @param sessionId - the session the entry is bound to.
+		 * @param ledger - the ledger to persist.
+		 */
+		function writeLedger(sessionId, ledger) {
+			try {
+				window.localStorage.setItem(LEDGER_PREFIX + sessionId, JSON.stringify(ledger));
+			} catch {
+				/* private mode: keep the in-memory copy */
+			}
+		}
+
+		/**
+		 * Fold one balance reading into the ledger: a drop is spend, a rise is a
+		 * top-up that only moves the baseline.
+		 * @param ledger - previous ledger.
+		 * @param total - balance just read.
+		 * @returns the updated ledger.
+		 */
+		function advanceLedger(ledger, total) {
+			if (!Number.isFinite(total)) return ledger;
+			let spent = ledger.spent;
+			if (ledger.last !== null) {
+				const delta = ledger.last - total;
+				if (delta > 0) spent += delta;
+			}
+			return { last: total, spent, peak: Math.max(ledger.peak, spent) };
+		}
+
 		// ---- balance store ---------------------------------------------------
 		const listeners = new Set();
 		let snapshot = { status: "loading", fetchedAt: 0 };
@@ -183,7 +239,9 @@ window.__ModuleLoader__.load({
 					schedule();
 					return;
 				}
-				load(false).then(schedule, schedule);
+				// every tick asks for a fresh provider read: the host caps the rate with
+				// its own cooldown, and the chip must not lag behind the account balance
+				load(true).then(schedule, schedule);
 			}, readSettings().pollSec * 1000);
 		}
 
@@ -403,7 +461,20 @@ window.__ModuleLoader__.load({
 			const [open, setOpen] = useState(false);
 			const [settingsOpen, setSettingsOpen] = useState(false);
 			const [display, setDisplay] = useState(readSettings);
+			const sessionId = typeof props.sessionId === "string" && props.sessionId !== "" ? props.sessionId : "default";
+			const [ledger, setLedger] = useState(() => readLedger(sessionId));
 			const root = useRef(null);
+
+			// every successful reading moves the ledger; a top-up only moves the baseline
+			useEffect(() => {
+				if (state.status !== "ok" || !Number.isFinite(state.total)) return;
+				setLedger((previous) => {
+					const next = advanceLedger(previous, state.total);
+					if (next.last === previous.last && next.spent === previous.spent) return previous;
+					writeLedger(sessionId, next);
+					return next;
+				});
+			}, [sessionId, state.status, state.total, state.fetchedAt]);
 
 			// settings drive the colour thresholds and the poll cadence
 			useEffect(() => {
@@ -443,8 +514,25 @@ window.__ModuleLoader__.load({
 					: total <= display.warning
 						? "warning"
 						: "success";
-			const cost = priceUsage(usage, state.price);
-			const spent = state.status === "ok" && cost !== undefined ? cost : undefined;
+			// 当前会话：优先用宿主按轮计价的投影（每轮按发生时刻的档位），
+			// 拿不到时退回整段 token 估算；两者都不低于余额账本峰值，保证不回退。
+			const perTurn = useProjection("composerBalanceCost");
+			const perTurnCost = perTurn !== null && perTurn !== undefined && Number.isFinite(perTurn.total)
+				? perTurn.total
+				: undefined;
+			const tokenCost = priceUsage(usage, state.price);
+			const estimate = perTurnCost ?? tokenCost;
+			const balanceCost = ledger.peak;
+			const composite = Math.max(estimate ?? 0, balanceCost);
+
+			useEffect(() => {
+				if (!Number.isFinite(composite) || composite <= ledger.peak) return;
+				const next = { ...ledger, peak: composite };
+				writeLedger(sessionId, next);
+				setLedger(next);
+			}, [composite, ledger, sessionId]);
+
+			const spent = state.status === "ok" && composite > 0 ? composite : undefined;
 
 			const openCard = useCallback(() => {
 				setOpen((value) => {
@@ -469,6 +557,20 @@ window.__ModuleLoader__.load({
 			const hitRate = hasTokens && inputTokens > 0
 				? ((usage.cacheReadTokens ?? 0) / inputTokens * 100).toFixed(1)
 				: "0.0";
+
+			/**
+			 * Build one wrapped meta line: every segment stays unbreakable, only the
+			 * gaps between segments may wrap.
+			 * @param key - React key for the row.
+			 * @param parts - segments, joined by a thin separator dot.
+			 */
+			const metaLine = (key, parts) => h("div", { className: "dcb_meta", key },
+				parts.flatMap((part, index) => index === 0
+					? [h("span", { key: "p0" }, part)]
+					: [
+						h("span", { className: "dcb_meta_dot", "aria-hidden": true, key: "d" + index }, "·"),
+						h("span", { key: "p" + index }, part),
+					]))
 
 			const chip = h("span", {
 				className: "dcb_chip",
@@ -503,19 +605,30 @@ window.__ModuleLoader__.load({
 					h("span", { className: "dcb_label", key: "l" }, t("card.balance")),
 					h("span", { className: "dcb_value", key: "v" }, state.status === "ok" ? money(total, currency) : "—"),
 				]),
-				h("div", { className: "dcb_sub", key: "bal-sub" },
-					state.status === "ok"
-						? "充值 " + money(state.toppedUp, currency) + " · 赠送 " + money(state.granted, currency)
-						: readout),
+				state.status === "ok"
+					? metaLine("bal-sub", ["充值 " + money(state.toppedUp, currency), "赠送 " + money(state.granted, currency)])
+					: h("div", { className: "dcb_sub", key: "bal-sub" }, readout),
 				h("div", { className: "dcb_rule", key: "rule-1" }),
 				h("div", { className: "dcb_row", key: "session" }, [
 					h("span", { className: "dcb_label", key: "l" }, t("card.session")),
 					h("span", { className: "dcb_value", key: "v" }, spent === undefined ? "—" : money(spent, currency)),
 				]),
-				h("div", { className: "dcb_sub", key: "session-sub" },
-					hasTokens
-						? "输入 " + tokens(inputTokens) + " · 输出 " + tokens(usage.outputTokens ?? 0) + " · 命中 " + hitRate + "%" + (state.isPeak === true ? " · 高峰计价" : " · 空闲计价")
-						: t("card.empty")),
+				(balanceCost > 0 || estimate !== undefined)
+					? metaLine("session-cost", [
+						...(balanceCost > 0 ? ["余额变动 " + money(balanceCost, currency)] : []),
+						...(estimate !== undefined
+							? [(perTurnCost !== undefined ? "按轮计价 " : "按 token ") + money(estimate, currency)]
+							: []),
+					])
+					: null,
+				hasTokens
+					? metaLine("session-sub", [
+						"输入 " + tokens(inputTokens),
+						"输出 " + tokens(usage.outputTokens ?? 0),
+						"命中 " + hitRate + "%",
+						perTurnCost !== undefined ? "按轮计价" : state.isPeak === true ? "高峰计价" : "空闲计价",
+					])
+					: h("div", { className: "dcb_sub", key: "session-sub" }, t("card.empty")),
 				h("div", { className: "dcb_rule", key: "rule-2" }),
 				h("div", { className: "dcb_foot", key: "foot" }, [
 					h("span", { key: "time" }, readout),

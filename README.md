@@ -42,9 +42,13 @@ card uses):
 
 - **Balance** — read from DeepSeek's `/user/balance` on the host, cached for
   `refreshIntervalMs`; the browser never holds the API key.
-- **Current session spend** — priced from the host's own `tokenUsage`
-  projection (input / cache-hit / cache-write / output) with the unit price of
-  the model the agent is currently on.
+- **Current session spend** — priced per settlement: the plugin registers its
+  own session projection (`composerBalanceCost`) that folds each provider usage
+  sample and charges it at the tariff in force **at that turn's own timestamp**
+  (peak 09–12 / 14–18 CST weekdays costs double). A session that spans peak and
+  off-peak therefore adds up correctly instead of being priced at whatever
+  tariff happens to be live when the chip renders. Offline replay of a real
+  session matched the account's own daily figure within a few percent.
 - **One card** — balance, session, last update, refresh and settings. Nothing
   else competes for attention.
 - **Native look and feel** — the chip uses the same geometry as the context
@@ -67,6 +71,22 @@ deployment) and reload the page.
 
 If you also run another balance chip in the composer, disable one of them —
 each entry renders its own chip.
+
+## How the session figure is produced
+
+```
+余额变动  ¥2.83 · 按轮计价 ¥6.49          ← 两个来源都显示出来
+输入 106.3M · 输出 344.7K · 命中 99.8% · 按轮计价
+```
+
+- **按轮计价** is the primary figure: every provider usage sample is priced at its
+  own timestamp (peak/off-peak aware), summed over the session. It is the number
+  the provider would bill for that session's tokens.
+- **余额变动** is the accumulated drop of the account balance since the chip
+  started watching. It is the ground truth for "what left my account", but it
+  also includes any other activity on the same key.
+- The displayed value never walks backwards: it is the max of the two and of the
+  highest value already shown for that session.
 
 ## Configuration
 

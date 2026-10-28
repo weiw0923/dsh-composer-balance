@@ -11,6 +11,8 @@
  * of the signed-in account — exactly what the chip is for. It never returns the
  * API key.
  */
+import { foldCost, initCostState } from './cost.js'
+
 export const name = 'dsh-composer-balance'
 
 /** The web server is the only hard dependency; credentials are read optionally. */
@@ -91,6 +93,15 @@ try {
   z = loaded.default ?? loaded
 } catch {
   /* linked checkout: the schema stays unavailable and apply() falls back to DEFAULTS */
+}
+
+/** Schema module for the cost projection — same optional-import story as above. */
+let zod = null
+try {
+  const loaded = await import('zod')
+  zod = loaded.z ?? loaded.default?.z ?? loaded.default ?? null
+} catch {
+  /* linked checkout without a node_modules of its own */
 }
 
 /** Unit price for one model, in the balance currency, per million tokens. */
@@ -273,6 +284,34 @@ export function apply(ctx, config) {
       danger: settings.dangerThreshold,
       refreshIntervalMs: settings.refreshIntervalMs,
     }
+  }
+
+  // Per-turn cost: one session projection, priced at each settlement's own time.
+  if (zod !== null && zod.object !== undefined && typeof zod.object === 'function') {
+    const stateSchema = zod.object({
+      model: zod.string(),
+      total: zod.number().nonnegative(),
+      turns: zod.number().int().nonnegative(),
+      last: zod.object({
+        turn: zod.number().int().nonnegative(),
+        step: zod.number().int().nonnegative(),
+        cost: zod.number().nonnegative(),
+      }).strict().nullable(),
+    }).strict()
+    const viewSchema = zod.object({
+      total: zod.number().nonnegative(),
+      turns: zod.number().int().nonnegative(),
+    }).strict()
+    ctx.inject(['sessionProjections'], (sub) => {
+      sub.effect(() => sub.sessionProjections.register({
+        key: 'composerBalanceCost',
+        stateVersion: 1,
+        stateSchema,
+        init: () => initCostState(),
+        apply: (state, event) => foldCost(state, event, settings),
+        wire: { viewSchema, view: (state) => ({ total: state.total, turns: state.turns }) },
+      }), 'dsh-composer-balance: cost projection')
+    })
   }
 
   ctx.effect(() => ctx.webServer.register({
