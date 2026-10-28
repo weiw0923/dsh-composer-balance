@@ -47,6 +47,7 @@ window.__ModuleLoader__.load({
 				".dcb_chip:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}",
 				".dcb_icon{display:block;flex:none;margin-right:2px}",
 				".dcb_amount{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}",
+				".dcb_tag{color:var(--dsw-alias-label-tertiary)}",
 				".dcb_chip .dcb_amount_warning{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-warning-primary,#f59e0b))}",
 				".dcb_chip .dcb_amount_danger{color:var(--dsw-alias-state-error-primary,#ef4444)}",
 				".dcb_sep{color:var(--dsw-alias-separator-primary)}",
@@ -81,10 +82,12 @@ window.__ModuleLoader__.load({
 
 		// ---- dictionaries ----------------------------------------------------
 		const zh = {
-			"chip.label": "账户余额与当前会话花费，点击展开",
+			"chip.label": "账户余额与当前对话花费，点击展开",
+			"chip.balance": "账户余额",
+			"chip.session": "当前对话",
 			"chip.refresh": "立即刷新余额",
 			"card.balance": "账户余额",
-			"card.session": "当前会话",
+			"card.session": "当前对话",
 			"card.empty": "本会话暂未产生消耗",
 			"card.noCost": "暂无法估算",
 			"card.updated": "{time} 更新",
@@ -103,6 +106,8 @@ window.__ModuleLoader__.load({
 		};
 		const en = {
 			"chip.label": "Account balance and current-session spend, click to expand",
+			"chip.balance": "balance",
+			"chip.session": "chat",
 			"chip.refresh": "Refresh balance now",
 			"card.balance": "Account balance",
 			"card.session": "Current session",
@@ -204,6 +209,8 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---- balance store ---------------------------------------------------
+		/** Session the chip is currently bound to; echoed on every request. */
+		let activeSession = "";
 		const listeners = new Set();
 		let snapshot = { status: "loading", fetchedAt: 0 };
 		let timer = null;
@@ -221,7 +228,11 @@ window.__ModuleLoader__.load({
 		 */
 		function load(force) {
 			if (inFlight !== null) return inFlight;
-			inFlight = fetch(ROUTE + (force ? "?force=1" : ""), { cache: "no-store" })
+			const query = [];
+			if (activeSession !== "") query.push("session=" + encodeURIComponent(activeSession));
+			if (force) query.push("force=1");
+			const url = ROUTE + (query.length === 0 ? "" : "?" + query.join("&"));
+			inFlight = fetch(url, { cache: "no-store" })
 				.then((response) => response.json())
 				.then((body) => publish({ status: body.status ?? (body.ok ? "ok" : "error"), ...body, fetchedAt: body.fetchedAt ?? Date.now() }))
 				.catch(() => publish({ status: "error", fetchedAt: Date.now(), error: "network" }))
@@ -267,6 +278,11 @@ window.__ModuleLoader__.load({
 			},
 			refresh() {
 				return load(true).then(schedule, schedule);
+			},
+			setSession(sessionId) {
+				if (sessionId === activeSession) return;
+				activeSession = sessionId;
+				void load(false);
 			},
 		};
 
@@ -467,6 +483,10 @@ window.__ModuleLoader__.load({
 
 			// every successful reading moves the ledger; a top-up only moves the baseline
 			useEffect(() => {
+				store.setSession(sessionId);
+			}, [sessionId]);
+
+			useEffect(() => {
 				if (state.status !== "ok" || !Number.isFinite(state.total)) return;
 				setLedger((previous) => {
 					const next = advanceLedger(previous, state.total);
@@ -517,9 +537,13 @@ window.__ModuleLoader__.load({
 			// 当前会话：优先用宿主按轮计价的投影（每轮按发生时刻的档位），
 			// 拿不到时退回整段 token 估算；两者都不低于余额账本峰值，保证不回退。
 			const perTurn = useProjection("composerBalanceCost");
-			const perTurnCost = perTurn !== null && perTurn !== undefined && Number.isFinite(perTurn.total)
+			const hostCost = state.cost !== undefined && state.cost !== null && Number.isFinite(state.cost.total)
+				? state.cost.total
+				: undefined;
+			const projected = perTurn !== null && perTurn !== undefined && Number.isFinite(perTurn.total)
 				? perTurn.total
 				: undefined;
+			const perTurnCost = hostCost ?? projected;
 			const tokenCost = priceUsage(usage, state.price);
 			const estimate = perTurnCost ?? tokenCost;
 			const balanceCost = ledger.peak;
@@ -589,8 +613,10 @@ window.__ModuleLoader__.load({
 				},
 			}, [
 				h(YenIcon, { key: "icon" }),
+				h("span", { className: "dcb_tag", key: "bal_tag" }, t("chip.balance")),
 				h("span", { className: "dcb_amount" + (level === "success" ? "" : " dcb_amount_" + level), key: "bal" }, state.status === "ok" ? plain(total, currency) : "—"),
 				h("span", { className: "dcb_sep", key: "sep", "aria-hidden": true }, "│"),
+				h("span", { className: "dcb_tag", key: "cost_tag" }, t("chip.session")),
 				h("span", { className: "dcb_amount", key: "cost" }, spent === undefined ? "—" : plain(spent, currency)),
 			])
 

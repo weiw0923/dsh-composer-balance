@@ -11,6 +11,10 @@
  * of the signed-in account — exactly what the chip is for. It never returns the
  * API key.
  */
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { zstdDecompressSync } from 'node:zlib'
 import { foldCost, initCostState } from './cost.js'
 
 export const name = 'dsh-composer-balance'
@@ -128,6 +132,78 @@ export const Config = Price === null ? undefined : z.object({
   modelPrices: z.dict(Price).default({}),
 })
 
+/** One-entry cache for the replayed session cost. */
+const replayCache = { key: '', total: 0, turns: 0 }
+
+/**
+ * Locate one session's durable log.
+ * @param sessionId - session folder name, e.g. `session-6db6…`.
+ * @returns the absolute path, or undefined when no project holds it.
+ */
+function findSessionLog(sessionId) {
+  const root = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'sessions')
+  let projects
+  try {
+    projects = readdirSync(root)
+  } catch {
+    return undefined
+  }
+  for (const project of projects) {
+    const candidate = join(root, project, sessionId, 'session.v4.jsonl.zstd')
+    try {
+      if (statSync(candidate).isFile()) return candidate
+    } catch {
+      /* not this project */
+    }
+  }
+  return undefined
+}
+
+/**
+ * Per-turn cost of one session, replayed from its durable log and priced at each
+ * settlement's own timestamp. Cheap enough to call on every poll: the replay is
+ * cached until the log's size or mtime moves.
+ * @param sessionId - session folder name.
+ * @returns `{total, turns}`, or undefined when the log is missing or unreadable.
+ */
+function sessionCost(sessionId) {
+  const file = findSessionLog(sessionId)
+  if (file === undefined) return undefined
+  let stat
+  try {
+    stat = statSync(file)
+  } catch {
+    return undefined
+  }
+  const key = sessionId + ':' + stat.size + ':' + stat.mtimeMs
+  if (replayCache.key === key) return { total: replayCache.total, turns: replayCache.turns }
+  let text
+  try {
+    text = zstdDecompressSync(readFileSync(file)).toString('utf8')
+  } catch {
+    // a frame still being appended: answer with the previous replay when we have one
+    return replayCache.key.startsWith(sessionId + ':')
+      ? { total: replayCache.total, turns: replayCache.turns }
+      : undefined
+  }
+  let state = initCostState()
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    let event
+    try {
+      event = JSON.parse(trimmed)
+    } catch {
+      continue
+    }
+    state = foldCost(state, event)
+  }
+  replayCache.key = key
+  replayCache.total = state.total
+  replayCache.turns = state.turns
+  return { total: state.total, turns: state.turns }
+}
+
 /** Route the browser polls. */
 const ROUTE = '/api/composer-balance'
 /** Minimum spacing between two forced provider reads. */
@@ -208,6 +284,8 @@ function currentModel(ctx) {
 }
 
 export function apply(ctx, config) {
+  /** Set once the per-turn cost projection is registered; echoed by the route. */
+  let projectionReady = false
   const merged = { ...DEFAULTS, ...(config ?? {}) }
   const settings = {
     ...merged,
@@ -279,6 +357,7 @@ export function apply(ctx, config) {
       model,
       price,
       isPeak: peak,
+      projection: projectionReady,
       basePrice: unitPrice(model, settings, false),
       warning: settings.warningThreshold,
       danger: settings.dangerThreshold,
@@ -310,7 +389,7 @@ export function apply(ctx, config) {
         init: () => initCostState(),
         apply: (state, event) => foldCost(state, event, settings),
         wire: { viewSchema, view: (state) => ({ total: state.total, turns: state.turns }) },
-      }), 'dsh-composer-balance: cost projection')
+      }) && (projectionReady = true), 'dsh-composer-balance: cost projection')
     })
   }
 
@@ -323,9 +402,18 @@ export function apply(ctx, config) {
         res.end()
         return
       }
-      const force = /[?&]force=1(?:&|$)/.test(req.url ?? '')
+      const url = req.url ?? ''
+      const force = /[?&]force=1(?:&|$)/.test(url)
       await readOnce(force)
-      sendJson(res, 200, payload())
+      const body = payload()
+      // the browser names its session, so the answer can carry that session's
+      // per-turn cost replayed from its own log (see sessionCost above)
+      const asked = /[?&]session=([^&]+)/.exec(url)
+      if (asked !== null) {
+        const replayed = sessionCost(decodeURIComponent(asked[1]))
+        if (replayed !== undefined) body.cost = replayed
+      }
+      sendJson(res, 200, body)
     },
   }), 'dsh-composer-balance: route')
 
