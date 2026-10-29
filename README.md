@@ -111,8 +111,9 @@ are always shown; a missing price only greys out the amount.
 
 ## Notes
 
-- The route is read-only and never returns the API key; it sits behind the same
-  fence as the rest of the web app.
+- The route is read-only and never returns the API key; every request must pass
+  the host's connection admission (identity plus Origin/Host fence), and the
+  route refuses the request when that service is unavailable.
 - The entry renders last in the composer dock (`order: 1`), so it lines up after
   the host's token/context meter.
 - The bundle is written against the host's public client seats: the

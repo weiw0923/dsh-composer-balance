@@ -6,10 +6,13 @@
  * unit price of the model the agent is currently on. The browser never talks to
  * the provider directly: it only reads this cached snapshot.
  *
- * The route is intentionally unauthenticated beyond the harness' own fence (the
- * whole web app already sits behind its token), because it exposes the balance
- * of the signed-in account — exactly what the chip is for. It never returns the
- * API key.
+ * The route is guarded by the host's connection admission: every request must
+ * pass `connection.admit()` (the same Host/Origin fence and browser/API
+ * authentication the host's own routes use), so only an admitted browser or
+ * API peer can read the balance or trigger a provider read. When the
+ * connection service is missing or admission itself fails, the route refuses
+ * the request instead of serving it — fail closed, never fail open. It never
+ * returns the API key.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -403,6 +406,33 @@ export function apply(ctx, config) {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { allow: 'GET, HEAD' })
         res.end()
+        return
+      }
+      // Connection admission: identity (browser session or API peer) plus the
+      // host's Origin/Host fence, exactly as the host's own routes require.
+      // The forced refresh below shares this gate: an unadmitted caller can
+      // neither read the balance nor spend the host's key on a provider read.
+      // Missing or failing admission refuses the request (fail closed).
+      const connection = ctx.get('connection')
+      let rejection
+      if (connection === undefined || typeof connection.admit !== 'function') {
+        rejection = 503
+      } else {
+        try {
+          const admission = connection.admit(req)
+          if (admission === undefined || 'rejection' in admission) {
+            rejection = admission?.rejection ?? 401
+          }
+        } catch {
+          rejection = 503
+        }
+      }
+      if (rejection !== undefined) {
+        sendJson(res, rejection, {
+          ok: false,
+          status: rejection === 403 ? 'forbidden' : rejection === 503 ? 'unavailable' : 'unauthorized',
+          error: rejection === 403 ? 'untrusted origin' : rejection === 503 ? 'connection service unavailable' : 'unauthenticated',
+        })
         return
       }
       const url = req.url ?? ''
