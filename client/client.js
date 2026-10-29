@@ -215,6 +215,7 @@ window.__ModuleLoader__.load({
 		let snapshot = { status: "loading", fetchedAt: 0 };
 		let timer = null;
 		let inFlight = null;
+		let inFlightSession = "";
 
 		/** @param next - the snapshot to publish. */
 		function publish(next) {
@@ -227,17 +228,22 @@ window.__ModuleLoader__.load({
 		 * @param force - true to ask the host for a fresh provider read.
 		 */
 		function load(force) {
-			if (inFlight !== null) return inFlight;
+			// a request answered for another session must not publish into this one
+			const asked = activeSession;
+			if (inFlight !== null && asked === inFlightSession) return inFlight;
 			const query = [];
 			if (activeSession !== "") query.push("session=" + encodeURIComponent(activeSession));
 			if (force) query.push("force=1");
 			const url = ROUTE + (query.length === 0 ? "" : "?" + query.join("&"));
+			inFlightSession = asked;
 			inFlight = fetch(url, { cache: "no-store" })
 				.then((response) => response.json())
 				.then((body) => publish({ status: body.status ?? (body.ok ? "ok" : "error"), ...body, fetchedAt: body.fetchedAt ?? Date.now() }))
 				.catch(() => publish({ status: "error", fetchedAt: Date.now(), error: "network" }))
 				.finally(() => {
 					inFlight = null;
+					// the session changed while this request was out: ask again with it
+					if (activeSession !== asked) void load(false);
 				});
 			return inFlight;
 		}
@@ -259,7 +265,7 @@ window.__ModuleLoader__.load({
 		const store = {
 			subscribe(listener) {
 				listeners.add(listener);
-				if (listeners.size === 1) {
+				if (listeners.size === 1 && activeSession !== "") {
 					load(false).then(schedule, schedule);
 				}
 				return () => {
@@ -280,9 +286,9 @@ window.__ModuleLoader__.load({
 				return load(true).then(schedule, schedule);
 			},
 			setSession(sessionId) {
-				if (sessionId === activeSession) return;
+				if (sessionId === activeSession) return false;
 				activeSession = sessionId;
-				void load(false);
+				return true;
 			},
 		};
 
@@ -483,7 +489,9 @@ window.__ModuleLoader__.load({
 
 			// every successful reading moves the ledger; a top-up only moves the baseline
 			useEffect(() => {
-				store.setSession(sessionId);
+				if (store.setSession(sessionId)) {
+					load(false).then(schedule, schedule);
+				}
 			}, [sessionId]);
 
 			useEffect(() => {
